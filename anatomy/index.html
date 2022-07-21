@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>WebSocket demo</title>
+  <style>
+    #app {
+        width: 100%;
+        max-width: 800px;
+        margin: 0 auto;
+    }
+    button {
+        padding: .25em 1em;
+    }
+    .status.on {
+        color: green;
+    }
+    .status.off {
+        color: red;
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div>
+    <p>当前状态：<span id="status" class="status off">未连接</span></p>
+  </div>
+  <div class="actions">
+    <button class="connect">连接ws服务器</button>
+    <button class="send">发送数据</button>
+  </div>
+</div>
+<script src="client.js"></script>
+</body>
+</html>

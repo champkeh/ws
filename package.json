@@ -31,6 +31,7 @@
     "wrapper.mjs"
   ],
   "scripts": {
+    "start": "node anatomy/server.js",
     "test": "nyc --reporter=lcov --reporter=text mocha --throw-deprecation test/*.test.js",
     "integration": "mocha --throw-deprecation test/*.integration.js",
     "lint": "eslint --ignore-path .gitignore . && prettier --check --ignore-path .gitignore \"**/*.{json,md,yaml,yml}\""
