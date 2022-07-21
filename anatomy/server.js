@@ -5,8 +5,8 @@ const wss = new WebSocketServer({
   perMessageDeflate: false
 });
 
-wss.on('connection', (socket) => {
-  socket.on('message', (data) => {
-    socket.send(data);
+wss.on('connection', (client) => {
+  client.on('message', (data) => {
+    client.send(data);
   });
 });
