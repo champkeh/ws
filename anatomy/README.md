@@ -167,7 +167,7 @@ ws.setSocket(socket, head, {
 cb(ws, req);
 ```
 
-这样，我们通过监听`wss`的`connection`事件就可以拿到客户端对象了，这个对象就是`WebSocket`实例。
+这样，我们通过监听`wss`的`connection`事件就可以拿到这个 ws 对象了，这个对象就是`WebSocket`实例。
 
 从上面也可以看出，websocket 服务器的实现比较简单，仅仅是处理一下握手请求，然后把这个请求对应的底层 tcp 连接包装到一个 ws 对象中并通过`connection`事件传给应用层。应用层可根据这个 ws 对象与客户端进行双向通信。
 
@@ -179,7 +179,6 @@ cb(ws, req);
 ```js
 const wss = new WebSocketServer({
   port: 8080,
-  perMessageDeflate: false
 });
 
 wss.on('connection', (ws) => {
@@ -189,9 +188,9 @@ wss.on('connection', (ws) => {
 });
 ```
 
-可以看到，我们用`client.on()`监听 websocket 消息，用`client.send()`发送 websocket 消息。
+可以看到，我们用`ws.on()`监听 websocket 消息，用`ws.send()`发送 websocket 消息。
 
-那这个`client`对象是如何监听及发送 websocket 消息的呢？tcp 连接具体是怎么跟这个`client`对象关联的呢？
+那这个`ws`对象是如何监听及发送 websocket 消息的呢？tcp 连接具体是怎么跟这个`ws`对象关联的呢？
 
 从上面的服务器握手过程中可知，在握手成功之后会把 socket 对象绑定在新创建的`ws`中，如下：
 
