@@ -169,7 +169,8 @@ cb(ws, req);
 
 这样，我们通过监听`wss`的`connection`事件就可以拿到这个 ws 对象了，这个对象就是`WebSocket`实例。
 
-从上面也可以看出，websocket 服务器的实现比较简单，仅仅是处理一下握手请求，然后把这个请求对应的底层 tcp 连接包装到一个 ws 对象中并通过`connection`事件传给应用层。应用层可根据这个 ws 对象与客户端进行双向通信。
+从上面也可以看出，websocket 服务器的实现比较简单，仅仅是处理一下握手请求，然后把这个请求对应的底层 tcp 连接包装到一个 ws 对象中并通过`connection`事件传给应用层。应用层可根据这个 ws
+对象与客户端进行双向通信。
 
 ## WebSocket 核心实现
 
@@ -245,7 +246,7 @@ socket.on('end', socketOnEnd);
 socket.on('error', socketOnError);
 ```
 
-可以看到，这里设置了 socket 监听`data`事件，当 socket 接收到数据时，执行下面的代码：
+可以看到，这里设置了 socket 监听`data`事件，当 socket 接收到客户端发来的数据时，执行下面的代码：
 
 ```js
 function socketOnData(chunk) {
@@ -255,9 +256,9 @@ function socketOnData(chunk) {
 }
 ```
 
-可以看到，在 socket 接收到数据时，将数据写入到`Receiver`中了。
+可以看到，socket 接收的数据直接写入`Receiver`中了。
 
-我们再来看看`Receiver`收到数据之后是如何处理的。
+我们再来看看`Receiver`是如何处理这些客户端发来的数据的。
 
 `Receiver`继承自`stream.Writable`类，并实现了自定义的`_write`方法。因此，调用`receiver.write(chunk)`会执行这个`_write`方法。
 
@@ -310,7 +311,7 @@ function startLoop(cb) {
 }
 ```
 
-这个循环用于从缓冲区中解析 websocket 的 frame 数据。
+可以看到，这是一个状态机，根据当前状态`_state`不断去解析缓冲区中的 frame 数据。
 
 值得关注的是，当从`Receiver`的缓冲区中解析出一个合法的 frame 时，会触发相应的事件。
 比如，解析到控制帧时，会分别在`Receiver`实例上触发`ping/pong/conclude`事件：
@@ -329,6 +330,7 @@ if (this._opcode === 0x08) {
 而这些事件会触发我们在`setSocket`中为`receiver`实例所绑定的事件处理器。
 
 数据帧的解析如下：
+
 ```js
 if (this._opcode === 2) {
   this.emit('message', data, true);
@@ -336,15 +338,19 @@ if (this._opcode === 2) {
   this.emit('message', buf, false);
 }
 ```
+
 可以看到，二进制帧对应的第二个参数为 true，文本帧第二个参数为 false。
 
 ### 这里小结一下
 
-我们在握手完成之后创建了一个 ws 对象，然后在`ws.setSocket`内部给 tcp socket 对象添加了一个`data`事件监听器，用于监听客户端发送过来的 frame 数据。当这个 socket 对象接收到来自客户端的数据时，我们通过一个`Receiver`对象去循环解析数据流中的 frame 结构，当成功解析出一个 frame 时，我们通过合适的事件(ping/pong/conclude/message)将解析出来的 payload 数据告知相关的监听器。
+我们在握手完成之后创建了一个 ws 对象，然后在`ws.setSocket`内部给 tcp socket 对象添加了一个`data`事件监听器，用于监听客户端发送过来的 frame 数据。当这个 socket
+对象接收到来自客户端的数据时，我们通过一个`Receiver`对象去循环解析数据流中的 frame 结构，当成功解析出一个 frame 时，我们通过合适的事件(ping/pong/conclude/message)将解析出来的
+payload 数据告知相关的监听器。
 
 下面，我们分别看一下在`receiver`上设置的那些监听器都做了什么。
 
 #### 1. conclude
+
 ```js
 receiver.on('conclude', receiverOnConclude)
 
@@ -364,9 +370,11 @@ function receiverOnConclude(code, reason) {
   else websocket.close(code, reason);
 }
 ```
+
 接收到客户端的**关闭帧**时，解除 socket 上的`data`监听器，然后调用`websocket.close()`给客户端发送**关闭帧**。
 
 #### 2. message
+
 ```js
 receiver.on('message', receiverOnMessage);
 
@@ -374,9 +382,11 @@ function receiverOnMessage(data, isBinary) {
   this[kWebSocket].emit('message', data, isBinary);
 }
 ```
+
 接收到客户端的`message`事件时，不做额外处理，仅仅是把 payload 数据告知给应用层代码。同时第二个参数表示数据是否为二进制。
 
 #### 3. ping
+
 ```js
 receiver.on('ping', receiverOnPing);
 
@@ -387,9 +397,11 @@ function receiverOnPing(data) {
   websocket.emit('ping', data);
 }
 ```
+
 接收到客户端的`ping`帧时，以相同的数据回复`pong`帧。同时通过`ping`事件告知应用层代码。
 
 #### 4. pong
+
 ```js
 receiver.on('pong', receiverOnPong);
 
@@ -397,6 +409,7 @@ function receiverOnPong(data) {
   this[kWebSocket].emit('pong', data);
 }
 ```
+
 接收到客户端的`pong`帧时，没有额外的处理，只是通知一下应用层代码。
 
 到此为止，从客户端发往服务端的数据流转过程已经分析完了。
