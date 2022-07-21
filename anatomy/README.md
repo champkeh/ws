@@ -81,8 +81,9 @@ type handleUpgrade = (
 5. 请求路径必须符合 options 中的 `path`
 6. 解析请求头中的子协议和扩展 `Sec-WebSocket-Protocol/Sec-WebSocket-Extensions`
 
-> todo:
-> 子协议及扩展的解析算法
+子协议被解析为`string[]`，传给`completeUpgrade()`去决定最终采用哪个协议。
+
+扩展被解析为`{'permessage-deflate': PerMessageDeflate}`，`PerMessageDeflate.params`包含了协商出的参数。
 
 ### completeUpgrade 的主要流程
 
@@ -117,7 +118,8 @@ const headers = [
 ];
 ```
 
-创建一个客户端对象，握手完成之后，后续与这个连接的通信都是通过这个对象进行。
+创建一个客户端对象，并将协商出的子协议和扩展保存在对象的私有字段上。
+握手完成之后，后续与这个连接的通信都是通过这个对象进行。
 
 ```js
 const ws = new this.options.WebSocket(null);
@@ -152,6 +154,7 @@ socket.write(headers.concat('\r\n').join('\r\n'));
 ```
 
 将这个 socket 连接保存在刚创建的客户端对象中：
+
 ```js
 ws.setSocket(socket, head, {
   maxPayload: this.options.maxPayload,
@@ -160,10 +163,32 @@ ws.setSocket(socket, head, {
 ```
 
 最后，通知外面连接已建立：
+
 ```js
 cb(ws, req);
 ```
 
 这样，我们通过监听`wss`的`connection`事件就可以拿到客户端对象了，这个对象是`WebSocket`实例。
 
-## noServer 模式
+
+## WebSocket 核心实现
+
+从上面对服务器的分析我们知道，握手过程中会创建一个 WebSocket 实例，并且把底层的 tcp 连接保存在这个实例中。握手完成之后，会通过`connection`
+事件将这个客户端实例发射出去。在外部的应用代码中，我们通过这个客户端实例监听网络中的消息：
+
+```js
+const wss = new WebSocketServer({
+  port: 8080,
+  perMessageDeflate: false
+});
+
+wss.on('connection', (client) => {
+  client.on('message', (data) => {
+    client.send(data);
+  });
+});
+```
+
+可以看到，我们用`client.on()`监听 websocket 消息，用`client.send()`发送 websocket 消息。
+
+那这个`client`对象是如何监听及发送 websocket 消息的呢？tcp 连接具体是怎么跟这个`client`对象关联的呢？
