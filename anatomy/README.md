@@ -9,12 +9,11 @@
 ```js
 const wss = new WebSocketServer({
   port: 8080,
-  perMessageDeflate: false
 });
 
-wss.on('connection', (client) => {
-  client.on('message', (data) => {
-    client.send(data);
+wss.on('connection', (ws) => {
+  ws.on('message', (data) => {
+    ws.send(data);
   });
 });
 ```
@@ -118,8 +117,8 @@ const headers = [
 ];
 ```
 
-创建一个客户端对象，并将协商出的子协议和扩展保存在对象的私有字段上。
-握手完成之后，后续与这个连接的通信都是通过这个对象进行。
+创建一个 ws 对象，并将协商出的子协议和扩展保存在对象的私有字段上。
+握手完成之后，后续与这个客户端的通信都是通过这个对象进行。
 
 ```js
 const ws = new this.options.WebSocket(null);
@@ -153,7 +152,7 @@ if (extensions[PerMessageDeflate.extensionName]) {
 socket.write(headers.concat('\r\n').join('\r\n'));
 ```
 
-将这个 socket 连接保存在刚创建的客户端对象中：
+将底层 tcp socket 保存在刚创建的 ws 对象中：
 
 ```js
 ws.setSocket(socket, head, {
@@ -162,18 +161,20 @@ ws.setSocket(socket, head, {
 });
 ```
 
-最后，通知外面连接已建立：
+最后，通知上层应用 websocket 连接已建立：
 
 ```js
 cb(ws, req);
 ```
 
-这样，我们通过监听`wss`的`connection`事件就可以拿到客户端对象了，这个对象是`WebSocket`实例。
+这样，我们通过监听`wss`的`connection`事件就可以拿到客户端对象了，这个对象就是`WebSocket`实例。
+
+从上面也可以看出，websocket 服务器的实现比较简单，仅仅是处理一下握手请求，然后把这个请求对应的底层 tcp 连接包装到一个 ws 对象中并通过`connection`事件传给应用层。应用层可根据这个 ws 对象与客户端进行双向通信。
 
 ## WebSocket 核心实现
 
-从上面对服务器的分析我们知道，握手过程中会创建一个 WebSocket 实例，并且把底层的 tcp 连接保存在这个实例中。握手完成之后，会通过`connection`
-事件将这个客户端实例发射出去。在外部的应用代码中，我们通过这个客户端实例监听网络中的消息：
+从上面对服务器的分析我们知道，握手过程中会创建一个 WebSocket 实例(ws)，并且把底层的 tcp 连接保存在这个实例中。握手完成之后，会通过`connection`
+事件将这个实例发射出去。在上层的应用代码中，我们通过这个 ws 实例与客户端进行双向通信：
 
 ```js
 const wss = new WebSocketServer({
@@ -181,9 +182,9 @@ const wss = new WebSocketServer({
   perMessageDeflate: false
 });
 
-wss.on('connection', (client) => {
-  client.on('message', (data) => {
-    client.send(data);
+wss.on('connection', (ws) => {
+  ws.on('message', (data) => {
+    ws.send(data);
   });
 });
 ```
