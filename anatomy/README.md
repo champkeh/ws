@@ -1,4 +1,4 @@
-# Anatomy
+# 剖析 ws 库的 websocket 实现
 
 ## WebSocketServer 核心实现
 
@@ -18,9 +18,9 @@ wss.on('connection', (ws) => {
 });
 ```
 
-构造器内部的流程如下：
+### 内部 http 服务器
 
-a. 如果选项中指定了端口字段，则内部会创建一个 http 服务器
+a. 如果在创建 ws 服务器时指定了端口字段，则内部会创建一个 http 服务器
 
 ```js
 if (options.port != null) {
@@ -42,7 +42,7 @@ b. 也可以将外部的 http 服务器作为`server`选项传入，则直接使
 
 从 a 中可知，内部创建的 http 服务器对正常的 http 请求的处理是直接返回`426 Upgrade Required`响应，表示这个 http 服务器不接受普通的 http 请求，只接受升级到其他协议的请求。
 
-### 处理协议升级请求
+### http 服务器处理协议升级请求
 
 ```js
 const emitConnection = this.emit.bind(this, 'connection');
@@ -78,9 +78,10 @@ type handleUpgrade = (
 3. 请求头中必须存在`Sec-WebSocket-Key`字段，并且必须是 Base64 编码
 4. 请求头中的协议版本字段`Sec-WebSocket-Version`只能是8或者13
 5. 请求路径必须符合 options 中的 `path`
-6. 解析请求头中的子协议和扩展 `Sec-WebSocket-Protocol/Sec-WebSocket-Extensions`
 
-子协议被解析为`string[]`，传给`completeUpgrade()`去决定最终采用哪个协议。
+如果这些都满足的话，解析请求头中的子协议和扩展 `Sec-WebSocket-Protocol/Sec-WebSocket-Extensions`。
+
+子协议被解析为`Set<string>`，传给`completeUpgrade()`去决定最终采用哪个协议。
 
 扩展被解析为`{'permessage-deflate': PerMessageDeflate}`，`PerMessageDeflate.params`包含了协商出的参数。
 
@@ -117,7 +118,10 @@ const headers = [
 ];
 ```
 
-创建一个 ws 对象，并将协商出的子协议和扩展保存在对象的私有字段上。
+### 实例化 ws 对象
+
+实例化一个 ws 对象，并协商出通信所采用的 protocol 和 extensions，将协商结果保存在 ws 对象的属性中。
+
 握手完成之后，后续与这个客户端的通信都是通过这个对象进行。
 
 ```js
@@ -146,7 +150,7 @@ if (extensions[PerMessageDeflate.extensionName]) {
 }
 ```
 
-发送握手响应：
+发送服务器的握手响应：
 
 ```js
 socket.write(headers.concat('\r\n').join('\r\n'));
@@ -169,8 +173,8 @@ cb(ws, req);
 
 这样，我们通过监听`wss`的`connection`事件就可以拿到这个 ws 对象了，这个对象就是`WebSocket`实例。
 
-从上面也可以看出，websocket 服务器的实现比较简单，仅仅是处理一下握手请求，然后把这个请求对应的底层 tcp 连接包装到一个 ws 对象中并通过`connection`事件传给应用层。应用层可根据这个 ws
-对象与客户端进行双向通信。
+从上面也可以看出，WebSocketServer 服务器的实现比较简单，仅仅是处理一下握手请求，然后把这个请求对应的底层 tcp 连接包装到一个 ws 对象中并通过`connection`事件传给应用层。
+后续与客户端的通信完全由 WebSocket 实例对象 ws 处理。
 
 ## WebSocket 核心实现
 
@@ -204,7 +208,7 @@ ws.setSocket(socket, head, {
 
 ### setSocket 内部流程
 
-`setSocket`主要分2块逻辑，一块是创建并初始化`Receiver`和`Sender`，如下：
+`setSocket`内部的逻辑主要分为 2 块，一块是创建并初始化`Receiver`和`Sender`实例，如下：
 
 ```js
 const receiver = new Receiver({
@@ -228,7 +232,11 @@ receiver.on('ping', receiverOnPing);
 receiver.on('pong', receiverOnPong);
 ```
 
-另一块就是修改`socket`配置，如下：
+> 后续分析出的结果
+>
+> Receiver 负责接收并解析 websocket 客户端发送的 frame 数据，Sender 负责发送服务器的 frame 数据。
+
+另一块就是调整`socket`配置，如下：
 
 ```js
 this._socket = socket;
@@ -341,6 +349,20 @@ if (this._opcode === 2) {
 
 可以看到，二进制帧对应的第二个参数为 true，文本帧第二个参数为 false。
 
+另外，如果采用了 websocket 的压缩扩展，则`Receiver`在解析 frame 时会进行解压缩，最终给到上层应用的数据都是原始数据。相关代码如下：
+
+```js
+function getData(cb) {
+  const data = this.consume(this._payloadLength);
+
+  if (this._compressed) {
+    this._state = INFLATING;
+    this.decompress(data, cb);
+    return;
+  }
+}
+```
+
 ### 这里小结一下
 
 我们在握手完成之后创建了一个 ws 对象，然后在`ws.setSocket`内部给 tcp socket 对象添加了一个`data`事件监听器，用于监听客户端发送过来的 frame 数据。当这个 socket
@@ -413,3 +435,41 @@ function receiverOnPong(data) {
 接收到客户端的`pong`帧时，没有额外的处理，只是通知一下应用层代码。
 
 到此为止，从客户端发往服务端的数据流转过程已经分析完了。
+
+## 服务器到客户端的数据流转
+
+接下来看一下，在服务端调用`ws.send(data)`时数据是如何发送给客户端的。
+
+`ws.send()`方法的核心代码如下：
+
+```js
+function send(data, options, cb) {
+  const opts = {
+    binary: typeof data !== 'string',
+    mask: false,
+    compress: true,
+    fin: true,
+    ...options
+  };
+
+  if (!this._extensions[PerMessageDeflate.extensionName]) {
+    opts.compress = false;
+  }
+
+  this._sender.send(data, opts, cb);
+}
+```
+
+可以看到，通过我们之前实例化的`Sender`进行数据的发送。
+
+`sender.send()`方法的核心代码如下：
+
+```js
+function send(data, options, cb) {
+  
+}
+```
+
+## 参考
+
+1. [WebSocket Frame 结构](https://www.rfc-editor.org/rfc/rfc6455.html#section-5.2)

@@ -10,12 +10,12 @@ const wss = new WebSocketServer({
   }
 });
 
-wss.on('connection', (client) => {
-  client.on('message', (data, isBinary) => {
+wss.on('connection', (ws) => {
+  ws.on('message', (data, isBinary) => {
     if (isBinary) {
-      client.send(data);
+      ws.send(data);
     } else {
-      client.send(data.toString());
+      ws.send(data.toString());
     }
   });
 });
